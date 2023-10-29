@@ -1,4 +1,6 @@
-# ![Unum](https://github.com/LedgeDash/unum/blob/main/docs/assets/logo.png "Unum Logo")
+# ![Unum](https://github.com/MateusBMP/unum/blob/main/docs/assets/logo.png "Unum Logo")
+
+> **Original project by [LedgeDash](https://github.com/LedgeDash/unum)**
 
 Unum is a system for building and running large FaaS applications that consist of many FaaS functions.
 
@@ -14,7 +16,7 @@ From a cloud provider's perspective, Unum is better as it obviates the need to h
 
 [//]: # (Current Unum implementation supports Python functions on AWS.)
 
-To see examples of Unum applications, visit the [Unum application repo](https://github.com/LedgeDash/unum-appstore).
+To see examples of Unum applications, visit the [Unum application repo](https://github.com/MateusBMP/unum-appstore).
 
 # Getting Started
 
@@ -43,7 +45,7 @@ myapp/
 
 ## Building and Deploying
 
-To bulid and deploy your serverless application, use the `unum-cli`. `unum-cli` does the following 
+To bulid and deploy your serverless application, use the `unum_cli`. `unum_cli` does the following 
 
 1. Based on the Step Functions state machine, derives an intermediate representation that decentralizes the orchestration logic in the state machine to component functions (`function1`, `function2`, and `function3` in the example).
 2. Load platform-specific Unum runtime into each component function to create the executables for the target platform. During execution, the Unum runtime interposes on application logic (i.e., `app.py`) to provide orchestration, error handling and exactly-once execution guarantee.
@@ -57,7 +59,7 @@ To build an unum application for AWS, run the following command the in an unum
 application directory:
 
 ```bash
-unum-cli build -t -w unum-step-functions.json -p aws
+unum_cli build -t -w unum-step-functions.json -p aws
 ```
 
 The `-t` option would generate an AWS CloudFormation template (named
@@ -65,31 +67,31 @@ The `-t` option would generate an AWS CloudFormation template (named
 generate a `template.yaml` without building the application by running
 
 ```bash
-unum-cli template -p aws
+unum_cli template -p aws
 ```
 
 With the `template.yaml` in the directory, you can simply run
 
 ```bash
-unum-cli build
+unum_cli build
 ```
 
-to build the application for AWS. `unum-cli build` internally calls [AWS SAM](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html) to build the application and you will see the build artifacts under the `.aws-sam/` directory.
+to build the application for AWS. `unum_cli build` internally calls [AWS SAM](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html) to build the application and you will see the build artifacts under the `.aws-sam/` directory.
 
 To deploy your application to AWS, run
 
 ```bash
-unum-cli deploy
+unum_cli deploy
 ```
 
 If you want to build before deploying, use the following command to combine the two actions
 
 ```bash
-unum-cli deploy -b
+unum_cli deploy -b
 ```
 
 Without the `-b` option, unum will try to deploy the existing build artifacts
 and you might see `No changes to deploy` because your code changes haven't
 been built yet.
 
-`unum-cli deploy` internally calls AWS SAM to deploy the application as an AWS CloudFormation stack. Before calling `unum-cli deploy` for AWS, make sure that you have the environment set up to work with AWS and SAM. 
+`unum_cli deploy` internally calls AWS SAM to deploy the application as an AWS CloudFormation stack. Before calling `unum_cli deploy` for AWS, make sure that you have the environment set up to work with AWS and SAM. 
