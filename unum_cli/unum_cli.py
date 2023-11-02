@@ -707,21 +707,21 @@ def invoke_sam(args):
     else:
         logger.info(sam_output)
         logger.info(f'\033[32m\Invoke Succeeded!\033[0m\n')
-        logger.info(f'\033[32mChecking if there are finish functions ......\033[0m')
+        logger.info(f'Checking if there are finish functions ......')
 
     # if unum have finish functions, wait for them to finish
     finish_functions = []
     for f in unum_template["Functions"]:
         if "Finish" in unum_template["Functions"][f]["Properties"] and unum_template["Functions"][f]["Properties"]["Finish"] == True:
             finish_functions.append({ "Name": f, "Return": None })
-            logger.info(f'- {f}')
+            logger.info(f'- {f} function')
 
     if len(finish_functions) == 0:
         logger.info(f'\033[33m\nNo finish functions found\033[0m')
-        logger.info(f'\033[33m\nInvoke finished\033[0m')
+        logger.info(f'\033[32m\nInvoke finished\033[0m')
         return
     
-    logger.info(f'Waiting for the workflow to finish ......')
+    logger.info(f'\nWaiting for the workflow to finish ......')
     if unum_template["Globals"]["UnumIntermediaryDataStoreType"] == "dynamodb":
         for f in finish_functions:
             import boto3
@@ -736,10 +736,10 @@ def invoke_sam(args):
                     f["return"] = response["Item"]["User"]
                     break
                 time.sleep(5)
-            logger.info(f'\033[32m\n- {f["return"]}\033[0m')
+            logger.info(f'- {f["Name"]} function : {f["return"]}')
     else:
-        logger.info(f'\033[31m\nOnly DynamoDB is supported as the intermediary datastore\033[0m')
-        logger.info(f'\033[31m\nInvoke finished\033[0m')
+        logger.info(f'\033[33m\nOnly DynamoDB is supported as the intermediary datastore\033[0m')
+        logger.info(f'\033[32m\nInvoke finished\033[0m')
         return
 
     logger.info(f'\033[32m\nInvoke finished\033[0m')
