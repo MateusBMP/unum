@@ -105,6 +105,9 @@ def ingress(event):
     User function inputs are always JSON serializables.
     '''
 
+    if event == {}:
+        return event
+
     if event["Data"]["Source"] =="http":
         if unum.entry_function == False:
             if unum.gc == True:

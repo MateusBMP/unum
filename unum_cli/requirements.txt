@@ -1,3 +1,4 @@
 cfn-flip
 coloredlogs
 PyGithub
+boto3

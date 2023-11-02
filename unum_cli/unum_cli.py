@@ -73,6 +73,8 @@ def sam_build_clean(args):
     # remove unum runtime files from each function's directory
     runtime_file_basename = os.listdir(".unum/runtime")
     for f in platform_template["Resources"]:
+        if platform_template["Resources"][f]["Type"] != 'AWS::Serverless::Function':
+            continue
         app_dir = platform_template["Resources"][f]["Properties"]["CodeUri"]
         runtime_files = [app_dir+e for e in runtime_file_basename]
         try:
@@ -94,9 +96,28 @@ def sam_build(platform_template, args):
 
     # copy files from runtime to each functions directory
     for f in platform_template["Resources"]:
+        if platform_template["Resources"][f]["Type"] != 'AWS::Serverless::Function':
+            continue
         app_dir = platform_template["Resources"][f]["Properties"]["CodeUri"]
         subprocess.run(f'cp .unum/runtime/* {app_dir}', shell=True, check=True)
         subprocess.run(f'cp .unum/{app_dir}unum_config.json {app_dir}', shell=True, check=True)
+
+    # Add default requirements if requirements file does not exist or doesn't contains default dependencies
+    default_dependencies = ["cfn-flip"]
+    for f in platform_template["Resources"]:
+        if platform_template["Resources"][f]["Type"] != 'AWS::Serverless::Function':
+            continue
+        app_dir = platform_template["Resources"][f]["Properties"]["CodeUri"]
+        if os.path.isfile(f'{app_dir}requirements.txt'):
+            with open(f'{app_dir}requirements.txt') as f:
+                requirements = f.read().splitlines()
+                if not set(default_dependencies).issubset(requirements):
+                    with open(f'{app_dir}requirements.txt', 'a') as f:
+                        f.write('\n')
+                        f.write('\n'.join(default_dependencies))
+        else:
+            with open(f'{app_dir}requirements.txt', 'w') as f:
+                f.write('\n'.join(default_dependencies))
 
     try:
         logger.debug("Running \"" + "sam build -t " + args.platform_template + " --use-container\"")
@@ -106,7 +127,7 @@ def sam_build(platform_template, args):
         logger.info(f'\033[33mBuilt Artifacts  : .aws-sam/build\033[0m')
         logger.info(f'\033[33mBuilt Template   : .aws-sam/build/template.yaml\033[0m\n')
         logger.info(f'\033[33mCommands you can use next\n=========================\033[0m')
-        logger.info(f'\033[33m[*] Deploy: unum-cli deploy\033[0m\n')
+        logger.info(f'\033[33m[*] Deploy: unum_cli deploy\033[0m\n')
     except subprocess.CalledProcessError as e:
         logger.error(f'\033[31m \n Build Failed!\n\n AWS SAM failed to build due to:')
         # TODO: Improve error message
@@ -184,6 +205,31 @@ def sam_template_generate(unum_template):
         # fields of the SAM template
         arn = f"!GetAtt {f}Function.Arn"
         sam_template["Outputs"][f'{f}Function'] = {"Value": f"!GetAtt {f}Function.Arn"}
+
+    # If using DynamoDB as the intermediary datastore, add the DynamoDB table to the SAM template
+    if unum_template["Globals"]["UnumIntermediaryDataStoreType"] == "dynamodb":
+        sam_template["Resources"][f'{unum_template["Globals"]["UnumIntermediaryDataStoreName"]}Table'] = {
+                "Type": "AWS::DynamoDB::Table",
+                "Properties": {
+                    "TableName": unum_template["Globals"]["UnumIntermediaryDataStoreName"],
+                    "AttributeDefinitions": [
+                        {
+                            "AttributeName": "Name",
+                            "AttributeType": "S"
+                        }
+                    ],
+                    "KeySchema": [
+                        {
+                            "AttributeName": "Name",
+                            "KeyType": "HASH"
+                        }
+                    ],
+                    "ProvisionedThroughput": {
+                        "ReadCapacityUnits": 5,
+                        "WriteCapacityUnits": 5
+                    }
+                }
+            }
 
     return sam_template
 
@@ -371,7 +417,7 @@ def deploy_sam(args):
         logger.error(f'\033[31m \n Deploy Failed!\n\n Failed to find unum template file: {args.template}\033[0m\n')
         logger.error(f'\033[31m Make sure the unum template file exists\033[0m')
         logger.error(f'\033[31m You can specify a platform template file with -t/--template\033[0m')
-        logger.error(f'\033[31m See unum-cli deploy -h for more details\033[0m\n')
+        logger.error(f'\033[31m See unum_cli deploy -h for more details\033[0m\n')
         raise e
 
     # read platform template file (i.e., sam template)
@@ -382,7 +428,7 @@ def deploy_sam(args):
         logger.error(f'\033[31m \n Deploy Failed!\n\n Failed to find platform template file: {args.platform_template}\033[0m\n')
         logger.error(f'\033[31m Make sure the platform template file exists\033[0m')
         logger.error(f'\033[31m You can specify a platform template file with -s/--platform_template\033[0m')
-        logger.error(f'\033[31m See unum-cli deploy -h for more details\033[0m\n')
+        logger.error(f'\033[31m See unum_cli deploy -h for more details\033[0m\n')
         raise e
 
 
@@ -463,7 +509,7 @@ def deploy_sam(args):
         # time.sleep(5)
 
     # Validate build artifacts first
-    # User might have run unum-cli build asynchronously.
+    # User might have run unum_cli build asynchronously.
     # Additionally, we need to make sure that all unum configurations have
     # ARNs in their continuations, not function names
     if validate_sam_build_artifacts(platform_template) == False:
@@ -499,12 +545,14 @@ def deploy_sam(args):
         raise OSError(f'Failed to deploy to AWS')
     else:
         logger.info(sam_output)
-        logger.info(f'\033[32m\nDeploy Succeeded!\033[0m')
+        logger.info(f'\033[32m\nDeploy Succeeded!\033[0m\n')
+        logger.info(f'\033[33mCommands you can use next\n=========================\033[0m')
+        logger.info(f'\033[33m[*] Deploy: unum_cli invoke\033[0m\n')
 
 def sam_deploy_wrapper(stack_name):
-    ''' Wrapper around a sam deploy subprocess Note that unum-cli deploy will
+    ''' Wrapper around a sam deploy subprocess Note that unum_cli deploy will
     always use .aws-sam/build/template.yaml as the sam deploy template (i.e.,
-    sam deploy -t .aws-sam/build/template.yaml), because unum-cli piggybacks
+    sam deploy -t .aws-sam/build/template.yaml), because unum_cli piggybacks
     on the sam build artifacts
     '''
     ret = subprocess.run(["sam", "deploy",
@@ -568,8 +616,8 @@ def validate_sam_build_artifacts(platform_template):
     if os.path.isdir('.aws-sam/build') == False:
         logger.warning(f'\033[31m \n No build artifacts detected\033[0m\n')
         logger.warning('''\033[31m For AWS deployment, make sure you have the build artifacts under .aws-sam/build.
- To build an unum workflow, use the unum-cli build command.
- See unum-cli build -h for more details.\033[0m''')
+ To build an unum workflow, use the unum_cli build command.
+ See unum_cli build -h for more details.\033[0m''')
         return False
 
     # check if the number of directories under .aws-sam/build/ match the
@@ -619,19 +667,103 @@ def validate_build_artifacts(platform_template, platform):
     pass
 
 
+def invoke_sam(args):
+    import shutil
+
+    # check if AWS_PROFILE is set
+    if os.getenv("AWS_PROFILE") == None:
+        logger.error(f'\033[31m \n Invoke Failed!\n\n Make sure AWS_PROFILE is set\033[0m')
+        raise OSError(f'Environment variable $AWS_PROFILE must exist')
+
+    # read unum template file
+    try:
+        with open(args.template) as f:
+            unum_template = load_yaml(f.read())
+            stack_name = unum_template["Globals"]["ApplicationName"]
+    except Exception as e:
+        logger.error(f'\033[31m \n Invoke Failed!\n\n Failed to find unum template file: {args.template}\033[0m\n')
+        logger.error(f'\033[31m Make sure the unum template file exists\033[0m')
+        logger.error(f'\033[31m You can specify a platform template file with -t/--template\033[0m')
+        logger.error(f'\033[31m See unum_cli invoke -h for more details\033[0m\n')
+        raise e
+
+    # select the function to invoke finding the Start function on the unum template
+    start_function = None
+    for f in unum_template["Functions"]:
+        if "Start" in unum_template["Functions"][f]["Properties"] and unum_template["Functions"][f]["Properties"]["Start"] == True:
+            start_function = f + "Function"
+            break
+
+    if start_function == None:
+        logger.error(f'\033[31m \n Invoke Failed!\n\n Failed to find the Start function on the unum template file: {args.template}\033[0m\n')
+        logger.error(f'\033[31m Make sure the unum template file has a Start function\033[0m')
+        raise ValueError(f'Failed to find the Start function on the unum template')
+
+    # invoke start function
+    ret, sam_output = sam_invoke_wrapper(start_function, stack_name)
+    if ret == False:
+        logger.error(f'\033[31m Invoke Failed!\033[0m\n')
+        raise OSError(f'Failed to invoke to AWS')
+    else:
+        logger.info(sam_output)
+        logger.info(f'\033[32m\Invoke Succeeded!\033[0m\n')
+        logger.info(f'\033[32mChecking if there are finish functions ......\033[0m')
+
+    # if unum have finish functions, wait for them to finish
+    finish_functions = []
+    for f in unum_template["Functions"]:
+        if "Finish" in unum_template["Functions"][f]["Properties"] and unum_template["Functions"][f]["Properties"]["Finish"] == True:
+            finish_functions.append({ "Name": f, "Return": None })
+            logger.info(f'- {f}')
+
+    if len(finish_functions) == 0:
+        logger.info(f'\033[33m\nNo finish functions found\033[0m')
+        logger.info(f'\033[33m\nInvoke finished\033[0m')
+        return
+    
+    logger.info(f'Waiting for the workflow to finish ......')
+    if unum_template["Globals"]["UnumIntermediaryDataStoreType"] == "dynamodb":
+        for f in finish_functions:
+            import boto3
+            dynamodb = boto3.resource('dynamodb')
+            session_id = json.loads(sam_output)[1]
+            function_name = session_id + "/" + f["Name"] + "-output"
+            table_name = unum_template["Globals"]["UnumIntermediaryDataStoreName"]
+            table = dynamodb.Table(table_name)
+            while True:
+                response = table.get_item(Key={'Name': function_name})
+                if "Item" in response:
+                    f["return"] = response["Item"]["User"]
+                    break
+                time.sleep(5)
+            logger.info(f'\033[32m\n- {f["return"]}\033[0m')
+    else:
+        logger.info(f'\033[31m\nOnly DynamoDB is supported as the intermediary datastore\033[0m')
+        logger.info(f'\033[31m\nInvoke finished\033[0m')
+        return
+
+    logger.info(f'\033[32m\nInvoke finished\033[0m')
+
+
+def sam_invoke_wrapper(function_name, stack_name):
+    ''' Wrapper around a sam invoke subprocess.
+    '''
+    ret = subprocess.run(["sam", "remote", "invoke",
+                          function_name,
+                          "--stack-name", stack_name],
+                          capture_output=True)
+
+    if ret.returncode != 0:
+        logger.error(f'\033[31msam invoke Failed! Error message from sam:\033[0m')
+        logger.error(f'\033[31m {ret.stderr.decode("utf-8")} \033[0m')
+        return False, ret.stderr.decode("utf-8")
+
+    logger.info(f'\033[32m\nsam invoke Succeeded\033[0m')
+    return True, ret.stdout.decode("utf-8")
+
+
 def unum_init(args):
     import shutil
-    import base64
-
-    try:
-        from github import Github
-        git = Github()
-
-        unum_repo = git.get_repo("MateusBMP/unum")
-        unum_runtime = unum_repo.get_contents("runtime")
-    except:
-        logger.error(f'Cannot access Unum runtime repo')
-        sys.exit(1)
 
     app_name = args.name
 
@@ -650,25 +782,20 @@ def unum_init(args):
     os.makedirs(f'{app_name}/.unum')
     os.makedirs(f'{app_name}/.unum/runtime')
 
-    try:
-        for f in unum_runtime:
-            logger.info(f'Downloading {f.path} into {app_name}/.unum/{f.path}')
-            with open(f'{app_name}/.unum/{f.path}', "wb") as file_out:
-                file_text = base64.b64decode(f.content)
-                file_out.write(file_text)
-
-    except Exception as e:
-        logger.error(f'Failed to download Unum runtime')
-        logger.error(e)
-        shutil.rmtree(f'{app_name}')
-        sys.exit(1)
+    # Copy files from the runtime folder to .unum/runtime folder
+    runtime_folder = os.path.join(os.path.dirname(__file__), '..', 'runtime')
+    for f in os.listdir(runtime_folder):
+        shutil.copy(os.path.join(runtime_folder, f), f'{app_name}/.unum/runtime')
 
 
     # download the application starter files into {app_name} directory
     # from the Unum appstore github repo
     try:
+        from github import Github
+        git = Github()
+
         unum_app_repo = git.get_repo("MateusBMP/unum-appstore")
-    except:
+    except Exception as e:
         logger.error(f'Cannot access Unum appstore')
         logger.error(e)
         logger.warning(f'Continue without starter application files')
@@ -680,7 +807,7 @@ def unum_init(args):
         try:
             template_list = get_github_directory_list(unum_app_repo)
 
-        except:
+        except Exception as e:
             logger.error(f'Failed to get the list of starter apps from Unum appstore')
             logger.error(e)
             logger.warning(f'Continue initialization with the default template')
@@ -830,14 +957,14 @@ def unum_build(args):
 
     if args.platform == None:
         logger.info(f'No target platform specified.\nDefault to \033[33m\033[1mAWS\033[0m.')
-        logger.info(f'If AWS is not the desirable target, specify a target platform with -p or --platform.\nSee unum-cli build -h for details.\n')
+        logger.info(f'If AWS is not the desirable target, specify a target platform with -p or --platform.\nSee unum_cli build -h for details.\n')
         args.platform='aws'
 
     if args.platform == 'aws':
         # Default to AWS
         if args.platform_template == None:
             logger.info(f'No platform template file specified.\nDefault to\033[33m\033[1m template.yaml \033[0m')
-            logger.info(f'You can specify a platform template file with -s or --platform_template.\nSee unum-cli build -h for details.\n')
+            logger.info(f'You can specify a platform template file with -s or --platform_template.\nSee unum_cli build -h for details.\n')
             args.platform_template = "template.yaml"
 
         try:
@@ -846,8 +973,8 @@ def unum_build(args):
         except Exception as e:
             logger.error(f'\033[31m \n Build Failed!\n\n Make sure the platform template file exists\033[0m')
             logger.error(f'\033[31m You can specify a platform template file with -s/--platform_template\033[0m')
-            logger.error(f'\033[31m Or generate a platform template from your unum template with "unum-cli template" or "unum-cli build -g"\033[0m')
-            logger.error(f'\033[31m See unum-cli -h for more details\033[0m\n')
+            logger.error(f'\033[31m Or generate a platform template from your unum template with "unum_cli template" or "unum_cli build -g"\033[0m')
+            logger.error(f'\033[31m See unum_cli -h for more details\033[0m\n')
             raise e
 
         sam_build(platform_template, args)
@@ -855,7 +982,7 @@ def unum_build(args):
         pass
 
 def unum_template(args):
-    # unum-cli template -c/--clean
+    # unum_cli template -c/--clean
     if args.clean:
         try:
             subprocess.run(['rm', '-f', 'template.yaml'], check=True)
@@ -866,13 +993,13 @@ def unum_template(args):
     # if platform is not specified
     if args.platform == None:
         logger.info(f'No target platform specified.\nDefault to \033[33m\033[1mAWS\033[0m.')
-        logger.info(f'If AWS is not the desirable target, specify a target platform with -p or --platform.\nSee unum-cli template -h for details.\n')
+        logger.info(f'If AWS is not the desirable target, specify a target platform with -p or --platform.\nSee unum_cli template -h for details.\n')
         args.platform='aws'
 
     # if a unum-template file is not specified
     if args.template == None:
         logger.info(f'No unum template file specified.\nDefault to\033[33m\033[1m unum-template.yaml \033[0m')
-        logger.info(f'You can specify a template file with -t or --template.\nSee unum-cli template -h for details.\n')
+        logger.info(f'You can specify a template file with -t or --template.\nSee unum_cli template -h for details.\n')
         args.template = 'unum-template.yaml'
 
     try:
@@ -911,7 +1038,7 @@ def unum_template(args):
         return
     elif args.platform ==None:
         logger.error(f'Failed to generate platform template due to missing target')
-        raise ValueError(f'Specify target platform with -p or --platform. See unum-cli template -h for details.')
+        raise ValueError(f'Specify target platform with -p or --platform. See unum_cli template -h for details.')
     else:
         raise ValueError(f'Unknown platform: {args.platform}')
 
@@ -935,8 +1062,8 @@ def unum_deploy(args):
         logger.error(f'\033[31m \n Deploy Failed!\n\n Failed to find platform template file: {args.platform_template}\033[0m\n')
         logger.error(f'\033[31m Make sure the platform template file exists\033[0m')
         logger.error(f'\033[31m You can specify a platform template file with -s/--platform_template\033[0m')
-        logger.error(f'\033[31m Or generate a platform template from your unum template with "unum-cli template" or "unum-cli build -g"\033[0m')
-        logger.error(f'\033[31m See unum-cli -h for more details\033[0m\n')
+        logger.error(f'\033[31m Or generate a platform template from your unum template with "unum_cli template" or "unum_cli build -g"\033[0m')
+        logger.error(f'\033[31m See unum_cli -h for more details\033[0m\n')
         raise e
 
     if "AWSTemplateFormatVersion" in platform_template:
@@ -979,12 +1106,32 @@ def unum_deploy(args):
         raise OSError(f'Other deployment not supported yet')
 
 
+def unum_invoke(args):
+    if args.template == None:
+        # unum template not specified, default to unum-template.yaml
+        logger.info(f'No unum template file specified.\nDefault to\033[33m\033[1m unum-template.yaml \033[0m\n')
+        args.template = 'unum-template.yaml'
+
+    if args.platform == None:
+        # platform not specified
+        logger.info(f'No target platform specified.\nDefault to \033[33m\033[1mAWS\033[0m.')
+        args.platform = 'aws'
+
+    if args.platform == 'aws':
+        logger.info(f'\033[33m\033[1mInvoke to AWS ......\033[0m\n')
+        invoke_sam(args)
+    elif args.platform == 'azure':
+        raise OSError(f'AZure invoke not supported yet')
+    else:
+        raise OSError(f'Other invoke not supported yet')
+
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='Unum CLI for creating, building and deploying Unum applications',
-        usage = "unum-cli [options] <command>",
-        epilog="To see help text for a specific command, use unum-cli <command> -h")
+        usage = "unum_cli [options] <command>",
+        epilog="To see help text for a specific command, use unum_cli <command> -h")
 
     subparsers = parser.add_subparsers(title='command', dest="command", required=True)
 
@@ -1024,7 +1171,7 @@ def main():
 
     # deploy command parser
     deploy_parser = subparsers.add_parser("deploy", description="deploy unum application")
-    deploy_parser.add_argument('-b', '--build', help="build before deploying. Note: does NOT generate new platform template as in unum-cli build -g",
+    deploy_parser.add_argument('-b', '--build', help="build before deploying. Note: does NOT generate new platform template as in unum_cli build -g",
         required=False, action="store_true")
     deploy_parser.add_argument('-p', '--platform', choices=['aws', 'azure'],
         help="target platform", required=False)
@@ -1032,6 +1179,13 @@ def main():
         help="unum template file", required=False)
     deploy_parser.add_argument('-s', '--platform_template',
         help="platform template file", required=False)
+
+    # invoke command parser
+    invoke_parser = subparsers.add_parser("invoke", description="invoke unum application")
+    invoke_parser.add_argument('-p', '--platform', choices=['aws', 'azure'],
+        help="target platform", required=False)
+    invoke_parser.add_argument('-t', '--template',
+        help="unum template file", required=False)
 
     args = parser.parse_args()
 
@@ -1045,6 +1199,8 @@ def main():
         unum_template(args)
     elif args.command == 'deploy':
         unum_deploy(args)
+    elif args.command == 'invoke':
+        unum_invoke(args)
     else:
         raise IOError(f'Unknown command: {args.command}')
 
